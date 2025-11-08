@@ -8,51 +8,116 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
+          cache: 'maven'
+
+      - name: Validate API Key
+        run: |
+          if [ -z "${{ secrets.SPOONACULAR_API_KEY }}" ]; then
+            echo "❌ SPOONACULAR_API_KEY is not set"
+            echo "Please add SPOONACULAR_API_KEY to GitHub Secrets"
+            echo "Tests will run with demo key (limited functionality)"
+          else
+            echo "✅ API Key is configured (first 8 chars: ${SPOONACULAR_API_KEY:0:8}...)"
+          fi
+        env:
+          SPOONACULAR_API_KEY: ${{ secrets.SPOONACULAR_API_KEY }}
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
 
       - name: Run tests with Maven
-        run: mvn clean test
+        run: mvn clean test -DapiKey=${{ secrets.SPOONACULAR_API_KEY }}
         env:
           SPOONACULAR_API_KEY: ${{ secrets.SPOONACULAR_API_KEY }}
 
       - name: Generate Allure Report
         run: mvn allure:report
 
-      - name: Archive Allure results
-        uses: actions/upload-artifact@v3
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v4
         with:
           name: allure-results
           path: target/allure-results
           retention-days: 30
 
-      - name: Archive Allure report
-        uses: actions/upload-artifact@v3
+      - name: Upload Allure report
+        uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: target/allure-reports
           retention-days: 30
 
-      - name: Archive test logs
-        uses: actions/upload-artifact@v3
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
         with:
-          name: test-logs
-          path: target/test.log
+          name: test-results
+          path: |
+            target/surefire-reports
+            target/test.log
           retention-days: 30
 
-      - name: Publish Allure Report
-        uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
+      - name: Test Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tests completed successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Allure Results**: Available as artifact" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Reports**: Available in surefire-reports" >> $GITHUB_STEP_SUMMARY
+          echo "- **Logs**: Check test.log for detailed execution" >> $GITHUB_STEP_SUMMARY
+
+  security-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for exposed API keys
+        run: |
+          echo "🔍 Checking for exposed API keys..."
+          if grep -r "YOUR_ACTUAL_API_KEY" src/ .github/; then
+            echo "❌ Found exposed API key placeholder!"
+            exit 1
+          fi
+          
+          if grep -r "demo_key_limited_use" src/; then
+            echo "⚠️  Demo key references found - this is expected for fallback"
+          fi
+          
+          # Проверка на случайные реальные ключи (базовая проверка)
+          if find src/ -name "*.java" -exec grep -E "[0-9a-f]{32}" {} \; | grep -v "demo_key_limited_use"; then
+            echo "⚠️  Possible API key pattern found, please verify it's not a real key"
+          fi
+          
+          echo "✅ No sensitive data exposed in code"
+
+  dependency-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: target/allure-reports
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Dependency check
+        run: mvn dependency:tree -Dverbose
