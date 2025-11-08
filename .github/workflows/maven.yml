@@ -1,0 +1,65 @@
+name: Java CI with Maven
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests with Maven
+        run: mvn clean test
+        env:
+          SPOONACULAR_API_KEY: ${{ secrets.SPOONACULAR_API_KEY }}
+
+      - name: Generate Allure Report
+        run: mvn allure:report
+
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v3
+        with:
+          name: allure-report
+          path: target/allure-reports
+          retention-days: 30
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: target/surefire-reports
+          retention-days: 30
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Check for exposed API keys
+        run: |
+          if grep -r "YOUR_ACTUAL_API_KEY" src/ .github/; then
+            echo "❌ Found exposed API key placeholder!"
+            exit 1
+          fi
+          if grep -r "demo_key_limited_use" src/; then
+            echo "⚠️  Using demo key - some tests may be skipped"
+          fi
+          echo "✅ No API keys exposed"
