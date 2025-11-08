@@ -9,9 +9,14 @@ import io.restassured.filter.log.RequestLoggingFilter;
 import io.restassured.filter.log.ResponseLoggingFilter;
 import io.restassured.http.ContentType;
 import io.restassured.specification.RequestSpecification;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 
 public class BaseTest {
     protected static final Logger logger = LoggerFactory.getLogger(BaseTest.class);
@@ -20,25 +25,61 @@ public class BaseTest {
     protected static final String BASE_URL = "https://api.spoonacular.com";
 
     protected static RequestSpecification requestSpec;
+    private ByteArrayOutputStream requestLog;
+    private ByteArrayOutputStream responseLog;
+    private PrintStream originalOut;
 
     @BeforeAll
     static void setUp() {
         loadApiKey();
         validateApiKey();
 
+        // Настройка RestAssured для детального логирования
+        RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
+
         requestSpec = new RequestSpecBuilder()
                 .setBaseUri(BASE_URL)
                 .addQueryParam("apiKey", API_KEY)
                 .setContentType(ContentType.JSON)
-                .addFilter(new AllureRestAssured())
-                .addFilter(new RequestLoggingFilter())
-                .addFilter(new ResponseLoggingFilter())
+                .addFilter(new AllureRestAssured()) // Allure фильтр
+                .addFilter(new RequestLoggingFilter()) // Логирование запросов
+                .addFilter(new ResponseLoggingFilter()) // Логирование ответов
                 .build();
 
         RestAssured.requestSpecification = requestSpec;
 
-        logger.info("Base test setup completed. Using API Key: {}...",
-                API_KEY != null ? API_KEY.substring(0, 8) + "..." : "null");
+        logger.info("=== TEST SETUP COMPLETED ===");
+        logger.info("Base URL: {}", BASE_URL);
+        logger.info("Using API Key: {}...", API_KEY != null ? API_KEY.substring(0, 8) + "..." : "null");
+        logger.info("Demo Key Mode: {}", isDemoKey());
+    }
+
+    @BeforeEach
+    void setUpTest() {
+        logger.info("=== STARTING TEST: {} ===",
+                this.getClass().getSimpleName() + "." +
+                        new Throwable().getStackTrace()[1].getMethodName());
+
+        // Настройка потоков для логирования RestAssured
+        requestLog = new ByteArrayOutputStream();
+        responseLog = new ByteArrayOutputStream();
+        originalOut = System.out;
+
+        System.setOut(new PrintStream(requestLog));
+        RestAssured.filters(new RequestLoggingFilter(new PrintStream(requestLog)));
+        System.setOut(new PrintStream(responseLog));
+        RestAssured.filters(new ResponseLoggingFilter(new PrintStream(responseLog)));
+        System.setOut(originalOut);
+    }
+
+    @AfterEach
+    void tearDownTest() {
+        // Восстанавливаем стандартный вывод
+        System.setOut(originalOut);
+
+        logger.info("=== COMPLETED TEST: {} ===",
+                this.getClass().getSimpleName() + "." +
+                        new Throwable().getStackTrace()[1].getMethodName());
     }
 
     private static void loadApiKey() {
@@ -84,5 +125,38 @@ public class BaseTest {
 
     protected static boolean isDemoKey() {
         return "demo_key_limited_use".equals(API_KEY);
+    }
+
+    // Метод для логирования деталей запроса/ответа в Allure
+    protected void logRequestResponseDetails(io.restassured.response.Response response) {
+        String requestDetails = requestLog.toString();
+        String responseDetails = responseLog.toString();
+
+        if (!requestDetails.isEmpty()) {
+            logger.debug("Request Details:\n{}", requestDetails);
+            io.qameta.allure.Allure.addAttachment("Request Details", "text/plain", requestDetails);
+        }
+
+        if (!responseDetails.isEmpty()) {
+            logger.debug("Response Details:\n{}", responseDetails);
+            io.qameta.allure.Allure.addAttachment("Response Details", "text/plain", responseDetails);
+        }
+
+        // Логируем основные детали ответа
+        logger.info("Response Status: {} {}", response.getStatusCode(), response.getStatusLine());
+        logger.info("Response Time: {} ms", response.getTime());
+        logger.info("Response Content Type: {}", response.getContentType());
+
+        if (response.getBody() != null) {
+            String responseBody = response.getBody().asPrettyString();
+            if (responseBody.length() > 1000) {
+                logger.debug("Response Body (truncated):\n{}", responseBody.substring(0, 1000) + "...");
+                io.qameta.allure.Allure.addAttachment("Response Body (truncated)", "application/json",
+                        responseBody.substring(0, 1000) + "...");
+            } else {
+                logger.debug("Response Body:\n{}", responseBody);
+                io.qameta.allure.Allure.addAttachment("Response Body", "application/json", responseBody);
+            }
+        }
     }
 }

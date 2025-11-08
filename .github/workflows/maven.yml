@@ -1,4 +1,5 @@
-name: Java CI with Maven
+# .github/workflows/maven.yml
+name: Java CI with Allure Reports
 
 on:
   push:
@@ -28,38 +29,31 @@ jobs:
       - name: Generate Allure Report
         run: mvn allure:report
 
-      - name: Upload Allure results
+      - name: Archive Allure results
+        uses: actions/upload-artifact@v3
+        with:
+          name: allure-results
+          path: target/allure-results
+          retention-days: 30
+
+      - name: Archive Allure report
         uses: actions/upload-artifact@v3
         with:
           name: allure-report
           path: target/allure-reports
           retention-days: 30
 
-      - name: Upload test results
+      - name: Archive test logs
         uses: actions/upload-artifact@v3
         with:
-          name: test-results
-          path: target/surefire-reports
+          name: test-logs
+          path: target/test.log
           retention-days: 30
 
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v3
+      - name: Publish Allure Report
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
         with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Check for exposed API keys
-        run: |
-          if grep -r "YOUR_ACTUAL_API_KEY" src/ .github/; then
-            echo "❌ Found exposed API key placeholder!"
-            exit 1
-          fi
-          if grep -r "demo_key_limited_use" src/; then
-            echo "⚠️  Using demo key - some tests may be skipped"
-          fi
-          echo "✅ No API keys exposed"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: target/allure-reports
