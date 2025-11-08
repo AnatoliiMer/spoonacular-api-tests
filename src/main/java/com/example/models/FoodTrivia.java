@@ -1,4 +1,3 @@
-// src/main/java/com/example/models/FoodTrivia.java
 package com.example.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
